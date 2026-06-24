@@ -1,6 +1,5 @@
-// §10.6 world event bus — singleton, no instantiation needed
+// §10.6 world event bus — singleton
 const _L = new Map();
-
 export const worldEvents = {
   emit(type, payload) {
     (_L.get(type) ?? []).forEach(fn => fn(payload));
