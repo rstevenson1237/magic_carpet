@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Magic Carpet — M1: Terrain Deformation</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #renderCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none; /* required for Babylon.js pointer events on mobile */
+    }
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a2035;
+      color: #8af;
+      font-family: monospace;
+      font-size: 18px;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading Babylon.js…</div>
+  <canvas id="renderCanvas"></canvas>
+
+  <!-- Babylon.js core -->
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <!-- Babylon.js GUI -->
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+
+  <script>
+    // Hide loading screen once Babylon is ready
+    window.addEventListener('load', () => {
+      const loading = document.getElementById('loading');
+      if (loading) loading.style.display = 'none';
+    });
+  </script>
+
+  <!-- Main scene — loaded as ES module so terrain.js can be imported -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
