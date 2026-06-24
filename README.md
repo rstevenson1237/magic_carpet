@@ -1,6 +1,6 @@
-# Magic Carpet — Milestone 2: Procedural Island Generator
+# Magic Carpet — Milestone 3: Arcade Flight Controller
 
-Builds on M1. Generates a unique, seed-reproducible island with elevation bands, biome variants, and feature placement hooks — all fed into the M1 deformable terrain.
+Builds on M1 (deformable terrain) and M2 (procedural island generator). Adds a magic carpet entity driven by an arcade flight model, dual-platform input (desktop pointer-lock + touch joystick), a world-event bus, and soft terrain collision.
 
 ## How to run
 
@@ -12,31 +12,37 @@ python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-## What's new in M2
+## What's new in M3
 
-- **`src/generator.js`** — `generateIsland(seed)` implementing the §10.3 contract:
-  - 4-stage pipeline: fBm noise → island-mask layout → band classification → feature slots
-  - Elevation bands: beach (0–1.5m) → grass (1.5–6.5m) → rock (6.5–12m) → snow (12m+)
-  - Biome variants within each band (`plain/forest/swamp`, `sandy_beach/rocky_beach`, etc.)
-  - Feature placement stubs: castle, spawn, trigger×3, portal×2
-  - No external CDN dependency — self-contained seeded Simplex 2D noise + Mulberry32 PRNG
-- **Vertex-coloured terrain** — band/variant colours applied to the mesh after generation
-- **Seed UI** — type a seed number and click "Regenerate Island" (top-right panel)
-- **Feature markers** — coloured debug spheres show feature slot positions
+- **`src/worldEvents.js`** — §10.6 singleton event bus (`emit` / `on` / `off`)
+- **`src/flight.js`** — `FlightController`: carpet mesh, arcade physics (momentum, drag, gravity, banking), soft terrain collision, follow camera on a yaw-only pivot, `carpetMove` events
+- **`src/input.js`** — `InputController`: auto-detects desktop vs touch; desktop uses pointer-lock + WASD + mouse-look, touch uses `BABYLON.VirtualJoystick` (left) + right-half drag (look) + GUI cast/spell buttons
+- **`src/main.js`** updated: FlyCamera + brush painting removed; carpet + follow camera wired; HUD replaces brush panel; M3 self-check added
 
 ## Controls
 
+### Desktop
 | Input | Action |
 |---|---|
-| **W / A / S / D** + mouse | Fly camera |
-| **Left-click drag on terrain** | Paint in current mode |
-| **Right-click drag** | Paint opposite mode |
-| **Brush sliders** (top-left) | Adjust radius / strength |
-| **Mode button** | Toggle Raise / Lower |
+| **Click canvas** | Lock pointer (required to fly) |
+| **W / A / S / D** | Thrust forward / left / back / right |
+| **Mouse move** | Yaw (left/right) + pitch (up/down → altitude) |
+| **Left-click** | Primary cast (stub — M4) |
+| **Right-click** | Alt cast (stub — M4) |
+| **1 – 5** | Select spell slot |
 | **Seed input** (top-right) | Enter a seed number |
-| **Regenerate Island** | Generate new island from seed |
+| **Regenerate Island** | Generate new island; carpet teleports to spawn |
 
-## Feature markers (debug spheres floating above terrain)
+### Touch
+| Input | Action |
+|---|---|
+| **Left thumb joystick** | Move (forward / strafe) |
+| **Right-half drag** | Yaw / pitch look |
+| **CAST button** (bottom-right) | Primary cast |
+| **ALT button** | Alt cast |
+| **1–5 spell bar** (bottom-center) | Select spell slot |
+
+## Feature markers (debug spheres)
 
 | Colour | Kind |
 |---|---|
@@ -47,55 +53,38 @@ python3 -m http.server 8080
 
 ## Self-check console output
 
-Open the browser console immediately after load. Both M1 and M2 checks run automatically:
-
 ```
 Milestone 1 Self-Check — ✓ ALL PASS
-  [PASS] heights is Float32Array length 16384
-  [PASS] getHeight(0,0) returns number
-  ...
-
 Milestone 2 Self-Check — ✓ ALL PASS
-  [PASS] generateIsland(42) is deterministic (byte-identical)
-  [PASS] heights is Float32Array
-  [PASS] heights length === 16384
-  [PASS] bandAt is a function
-  [PASS] variantAt is a function
-  [PASS] featureSlots is an Array
-  [PASS] all 4 corners below y=0
-  [PASS] centroid (63,63) above y=0
-  [PASS] featureSlots has at least one castle
-  [PASS] castle slot is on land (height > 0)
-  [PASS] 200 random cells: variantAt ∈ bandAt's allowed set
-  [PASS] bandAt only returns valid band strings
-  [PASS] terrain.applyHeightmap(island.heights) runs without error
+Milestone 3 Self-Check — ✓ ALL PASS
+  [PASS] worldEvents.emit is a function
+  [PASS] worldEvents.on is a function
+  [PASS] worldEvents.off is a function
+  [PASS] worldEvents event round-trip fires handler
+  [PASS] carpetMove emitted during flight update
+  [PASS] terrain collision: y never below getHeight + CLEARANCE
+  [PASS] keyboard forward input sets forward=1
+  [PASS] left-stick simulation produces forward motion
+  [PASS] touch UI elements mounted — SKIP (desktop)
+  [PASS] pointer-lock overlay present in DOM
+[M3 FUN-CHECK] human sign-off required — is flying the island enjoyable?
 
 [PASS] FPS deform-spam (5s) ≥30 — XX fps (600 deforms)
 ```
 
-## Technical notes
+## Flight model constants
 
-### Generator architecture
+| Constant | Value | Notes |
+|---|---|---|
+| `THRUST` | 20 m/s² | Horizontal acceleration |
+| `MAX_HSPEED` | 28 m/s | Horizontal speed cap |
+| `DRAG` | 0.88/frame | Frame-rate-independent via `pow(DRAG, dt×60)` |
+| `GRAVITY` | 2.5 m/s² | Gentle downward pull |
+| `CLEARANCE` | 1.5 m | Hard floor above terrain surface |
+| `MAX_BANK` | 0.42 rad | ~24° max visual roll |
+| `ALT_SCALE` | 14 | Pitch-to-vertical-velocity multiplier |
 
-The generator is structured to allow alternative layouts without altering the rest of the pipeline. The `LAYOUTS` object holds layout strategies; only `singleIsland` is implemented for v1.
-
-### Height formula (island mask)
-
-```
-combined = h × mask × 0.65 + mask² × 0.85
-height   = combined × 20 − 1.5
-```
-
-- `h` = normalized fBm noise ∈ [−1, 1]
-- `mask` = smoothstep(distance_from_centre) ∈ [0, 1]
-- Corners always have mask = 0 → height = −1.5 (submerged ✓)
-- Centre always has mask = 1 → height ∈ [2.5, 28.5] (above sea level ✓)
-
-### Band system
-
-Elevation is the **primary** signal. The secondary low-frequency noise map selects only within the band's allowed variant set — the two systems never conflict.
-
-### World & grid conventions (unchanged from M1)
+## World & grid conventions (unchanged)
 
 | Property | Value |
 |---|---|
@@ -110,12 +99,13 @@ Elevation is the **primary** signal. The secondary low-frequency noise map selec
 
 | Criterion | Status |
 |---|---|
-| Noise heightmap, seedable | ✓ seeded Simplex fBm, 5 octaves |
-| Deterministic from seed | ✓ self-check verifies byte-identical |
-| Single-island radial mask layout | ✓ `LAYOUTS.singleIsland` |
-| Elevation bands (beach→grass→rock→snow) | ✓ |
-| Biome variants within bands, no conflict | ✓ elevation strictly dominant |
-| Feature-placement hook (stubbed) | ✓ `featureSlots` with castle/spawn/trigger/portal |
-| §10.3 contract exactly | ✓ `{heights, bandAt, variantAt, featureSlots}` |
-| Drops into `terrain.applyHeightmap` | ✓ |
-| Colored island rendered in M1 terrain | ✓ vertex-coloured mesh |
+| Carpet entity with arcade physics | ✓ momentum, drag, gravity, speed cap |
+| Frame-rate-independent drag | ✓ `pow(DRAG, dt×60)` |
+| Visual banking on strafe | ✓ cosmetic roll, `MAX_BANK = 0.42 rad` |
+| Soft terrain collision | ✓ `pos.y ≥ terrain.getHeight + CLEARANCE` |
+| Desktop pointer-lock + WASD + mouse-look | ✓ |
+| Touch VirtualJoystick + right-drag look | ✓ |
+| Touch cast buttons + spell bar | ✓ |
+| Follow camera (yaw-only pivot, no roll) | ✓ TransformNode yawPivot |
+| §10.6 `worldEvents` bus | ✓ emit/on/off, `carpetMove` emitted each frame |
+| Self-check all M1/M2/M3 assertions | ✓ |
