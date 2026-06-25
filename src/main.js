@@ -208,7 +208,7 @@ function buildGUI(isTouch) {
   });
 
   const helpText = isTouch
-    ? 'Left stick: move\nRight drag: look'
+    ? 'Left half: fly  Right half: look\nWASD also works • click: mouse lock'
     : 'WASD: fly  Mouse: look\nClick to lock pointer';
   const help = new BABYLON.GUI.TextBlock();
   help.text    = helpText;
@@ -496,13 +496,16 @@ function runM3Check() {
     chk('keyboard forward input sets forward=1 — SKIP (touch device)', true);
   }
 
-  // Touch / left-stick simulation
-  inputController._simulateLeftStick(0, -1); // forward
-  const inp2 = inputController.update(0.016);
-  const fwdOk = inp2.forward > 0.5 || (inputController.isTouch && true);
-  chk('left-stick simulation produces forward motion',
-    fwdOk, `forward=${inp2.forward.toFixed(2)}`);
-  inputController._simulateLeftStick(0, 0);
+  // Virtual joystick simulation (only relevant on touch — desktop reads _keys, not joystick)
+  if (inputController.isTouch) {
+    inputController._simulateLeftStick(0, -1); // z < 0 = forward
+    const inp2 = inputController.update(0.016);
+    chk('left-stick simulation produces forward motion',
+      inp2.forward > 0.5, `forward=${inp2.forward.toFixed(2)}`);
+    inputController._simulateLeftStick(0, 0);
+  } else {
+    chk('left-stick simulation produces forward motion — SKIP (desktop)', true);
+  }
 
   // Touch UI elements present (PASS on desktop with skip note)
   if (inputController.isTouch) {

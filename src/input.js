@@ -1,58 +1,53 @@
-// Dual-platform input controller — desktop (pointer-lock + WASD) and touch (VirtualJoystick)
+// Dual-platform input controller — keyboard/mouse + touch
+// Touch uses custom document-level capture events so Babylon GUI overlays
+// cannot intercept them. No VirtualJoystick dependency.
 
-const YAW_SENS       = 0.0022;  // rad/pixel desktop mouse
-const PITCH_SENS     = 0.0018;  // rad/pixel desktop mouse
-const YAW_SENS_TOUCH   = 0.004;
-const PITCH_SENS_TOUCH = 0.003;
+const YAW_SENS         = 0.0022;
+const PITCH_SENS       = 0.0018;
+const YAW_SENS_TOUCH   = 0.005;
+const PITCH_SENS_TOUCH = 0.004;
+const JOY_RADIUS       = 60; // px — virtual joystick max travel radius
 
 export class InputController {
   constructor(canvas, scene) {
     this._canvas = canvas;
-    this._scene  = scene;
     this.isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
-    // Shared accumulated deltas — consumed each frame by update()
     this._yawAccum   = 0;
     this._pitchAccum = 0;
-
-    // Digital state
     this.forward       = 0;
     this.right         = 0;
     this.castDown      = false;
     this.altCastDown   = false;
     this.selectedSpell = 0;
 
-    // Pointer-lock overlay element (set by main.js after it creates the DOM element)
-    this._overlay = null;
+    this._keys       = new Set();
+    this._overlay    = null;
+    this._joyForward = 0;
+    this._joyRight   = 0;
+    this._touches    = new Map(); // pointerId → {startX,startY,lastX,lastY,side}
 
-    this._keys = new Set();
+    // ── Keyboard — always active (Chromebook has a keyboard even in touch mode)
+    document.addEventListener('keydown', e => {
+      this._keys.add(e.code);
+      if (e.code >= 'Digit1' && e.code <= 'Digit5')
+        this.selectedSpell = parseInt(e.code.slice(-1), 10) - 1;
+    });
+    document.addEventListener('keyup', e => this._keys.delete(e.code));
 
-    if (this.isTouch) {
-      this._initTouch(scene);
-    } else {
-      this._initDesktop(canvas, scene);
-    }
-  }
-
-  _initDesktop(canvas, scene) {
-    // Pointer lock request on click when not already locked
+    // ── Mouse look via pointer lock — available on all platforms
     canvas.addEventListener('click', () => {
       if (!document.pointerLockElement) canvas.requestPointerLock();
     });
-
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === canvas;
       if (this._overlay) this._overlay.style.display = locked ? 'none' : 'flex';
     });
-
-    // Accumulate mouse deltas while locked
     document.addEventListener('mousemove', e => {
       if (document.pointerLockElement !== canvas) return;
       this._yawAccum   += e.movementX * YAW_SENS;
       this._pitchAccum += e.movementY * PITCH_SENS;
     });
-
-    // Cast flags while locked
     document.addEventListener('mousedown', e => {
       if (document.pointerLockElement !== canvas) return;
       if (e.button === 0) this.castDown    = true;
@@ -63,72 +58,80 @@ export class InputController {
       if (e.button === 2) this.altCastDown = false;
     });
 
-    // WASD + spell keys
-    document.addEventListener('keydown', e => {
-      this._keys.add(e.code);
-      if (e.code >= 'Digit1' && e.code <= 'Digit5') {
-        this.selectedSpell = parseInt(e.code.slice(-1), 10) - 1;
-      }
-    });
-    document.addEventListener('keyup', e => {
-      this._keys.delete(e.code);
-    });
+    if (this.isTouch) this._initTouch(canvas);
   }
 
-  _initTouch(scene) {
-    // Left thumb joystick via Babylon VirtualJoystick
-    this._leftStick = new BABYLON.VirtualJoystick(true);
+  _initTouch(canvas) {
+    // Capture phase fires before the target, so we receive events even when
+    // Babylon GUI controls or other overlays have consumed them at the target level.
+    document.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse') return;
+      const side = e.clientX < window.innerWidth / 2 ? 'left' : 'right';
+      this._touches.set(e.pointerId, {
+        startX: e.clientX, startY: e.clientY,
+        lastX:  e.clientX, lastY:  e.clientY,
+        side,
+      });
+    }, { capture: true });
 
-    // Right-half drag for look
-    const rightTouches = new Map(); // pointerId → {x, y}
-    scene.onPointerObservable.add(info => {
-      const e = info.event;
-      const isRight = e.clientX > this._canvas.clientWidth / 2;
-      if (info.type === BABYLON.PointerEventTypes.POINTERDOWN && isRight) {
-        rightTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      } else if (info.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-        const prev = rightTouches.get(e.pointerId);
-        if (prev) {
-          this._yawAccum   += (e.clientX - prev.x) * YAW_SENS_TOUCH;
-          this._pitchAccum += (e.clientY - prev.y) * PITCH_SENS_TOUCH;
-          rightTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    document.addEventListener('pointermove', e => {
+      if (e.pointerType === 'mouse') return;
+      const t = this._touches.get(e.pointerId);
+      if (!t) return;
+
+      if (t.side === 'left') {
+        // Virtual joystick: delta relative to the original touch-down point
+        const dx   = e.clientX - t.startX;
+        const dy   = e.clientY - t.startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 4) {
+          const scale = Math.min(1, dist / JOY_RADIUS);
+          this._joyRight   =  (dx / dist) * scale;
+          this._joyForward = -(dy / dist) * scale; // screen Y down = backward
+        } else {
+          this._joyForward = 0; this._joyRight = 0;
         }
-      } else if (info.type === BABYLON.PointerEventTypes.POINTERUP) {
-        rightTouches.delete(e.pointerId);
+      } else {
+        // Right half: incremental yaw + pitch look
+        this._yawAccum   += (e.clientX - t.lastX) * YAW_SENS_TOUCH;
+        this._pitchAccum += (e.clientY - t.lastY) * PITCH_SENS_TOUCH;
+        t.lastX = e.clientX; t.lastY = e.clientY;
       }
-    });
+    }, { capture: true });
+
+    const endTouch = e => {
+      if (e.pointerType === 'mouse') return;
+      const t = this._touches.get(e.pointerId);
+      if (t?.side === 'left') { this._joyForward = 0; this._joyRight = 0; }
+      this._touches.delete(e.pointerId);
+    };
+    document.addEventListener('pointerup',     endTouch, { capture: true });
+    document.addEventListener('pointercancel', endTouch, { capture: true });
+
+    // Prevent browser scroll / pinch-zoom on the game canvas
+    canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+    canvas.addEventListener('touchmove',  e => e.preventDefault(), { passive: false });
   }
 
   setOverlay(el) {
     this._overlay = el;
-    // Initialise visibility correctly
-    if (!this.isTouch) {
-      el.style.display = document.pointerLockElement === this._canvas ? 'none' : 'flex';
-    } else {
-      el.style.display = 'none';
-    }
+    // Touch users can fly immediately; hide the "click to fly" overlay for them
+    el.style.display = (this.isTouch || document.pointerLockElement === this._canvas)
+      ? 'none' : 'flex';
   }
 
   update(/* dt */) {
+    const keyFwd   = this._keys.has('KeyW') ? 1 : this._keys.has('KeyS') ? -1 : 0;
+    const keyRight = this._keys.has('KeyD') ? 1 : this._keys.has('KeyA') ? -1 : 0;
+
     if (this.isTouch) {
-      // Normalise left joystick
-      if (this._leftStick) {
-        const dx = this._leftStick.deltaPosition.x;
-        const dz = this._leftStick.deltaPosition.z; // already negated by Babylon
-        const len = Math.sqrt(dx * dx + dz * dz);
-        if (len > 0.001) {
-          const scale = Math.min(1, len);
-          this.forward = -(dz / len) * scale; // forward = negative Z in joystick space
-          this.right   =  (dx / len) * scale;
-        } else {
-          this.forward = 0;
-          this.right   = 0;
-        }
-      }
+      // Joystick takes priority; WASD fills in when joystick is idle
+      const joyActive = Math.abs(this._joyForward) > 0.05 || Math.abs(this._joyRight) > 0.05;
+      this.forward = joyActive ? this._joyForward : keyFwd;
+      this.right   = joyActive ? this._joyRight   : keyRight;
     } else {
-      // WASD
-      this.forward = this._keys.has('KeyW') ? 1 : this._keys.has('KeyS') ? -1 : 0;
-      this.right   = this._keys.has('KeyD') ? 1 : this._keys.has('KeyA') ? -1 : 0;
+      this.forward = keyFwd;
+      this.right   = keyRight;
     }
 
     const result = {
@@ -141,28 +144,21 @@ export class InputController {
       selectedSpell: this.selectedSpell,
     };
 
-    // Consume accumulated deltas
     this._yawAccum   = 0;
     this._pitchAccum = 0;
-
     return result;
   }
 
-  // ── Test hooks (used by M3 self-check) ──────────────────────────────────────
+  // ── Test hooks ──────────────────────────────────────────────────────────────
 
   _simulateKey(code, down) {
     if (down) this._keys.add(code);
     else      this._keys.delete(code);
   }
 
+  // z < 0 = forward (up on screen); x > 0 = right
   _simulateLeftStick(x, z) {
-    if (this._leftStick) {
-      this._leftStick.deltaPosition.x = x;
-      this._leftStick.deltaPosition.z = z;
-    } else {
-      // Desktop: synthesise as forward/right directly for test purposes
-      this.forward = -z;
-      this.right   =  x;
-    }
+    this._joyForward = -z;
+    this._joyRight   =  x;
   }
 }
