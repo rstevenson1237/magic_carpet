@@ -108,9 +108,9 @@ export class InputController {
     document.addEventListener('pointerup',     endTouch, { capture: true });
     document.addEventListener('pointercancel', endTouch, { capture: true });
 
-    // Prevent browser scroll / pinch-zoom on the game canvas
-    canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
-    canvas.addEventListener('touchmove',  e => e.preventDefault(), { passive: false });
+    // Scroll / pinch-zoom prevention is handled by `touch-action: none` CSS on the
+    // canvas (set in index.html). Calling preventDefault() here would block Babylon
+    // from converting touch events into pointer events, breaking GUI button presses.
   }
 
   setOverlay(el) {

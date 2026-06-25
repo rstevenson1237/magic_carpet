@@ -37,7 +37,10 @@ waterMat.specularPower = 64;
 waterMat.alpha = 0.6;
 waterMat.backFaceCulling = false;
 water.material = waterMat;
-water.renderingGroupId = 1;
+// renderingGroupId deliberately left at default (0) so depth testing works normally.
+// A non-zero group caused the water plane to render over all group-0 geometry and
+// appear as a blue band across the screen from the close follow-camera.
+water.zOffset = -2; // slight NDC bias prevents z-fighting at the shoreline
 
 // ── Constants (must match generator.js / terrain.js) ─────────────────────────
 
@@ -280,6 +283,8 @@ function buildTouchGUI(ui) {
   // Bottom-center spell bar (5 slots)
   const spellBar = new BABYLON.GUI.StackPanel('touchSpellBar');
   spellBar.isVertical = false;
+  spellBar.width  = '260px';
+  spellBar.height = '52px';
   spellBar.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
   spellBar.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   spellBar.paddingBottom = '80px';
@@ -302,9 +307,11 @@ function buildTouchGUI(ui) {
     spellBar.addControl(btn);
   }
 
-  // Bottom-right cast buttons
+  // Bottom-right cast buttons — explicit width required or StackPanel defaults to
+  // 100% width and centres its children despite HORIZONTAL_ALIGNMENT_RIGHT.
   const castStack = new BABYLON.GUI.StackPanel('touchCastStack');
   castStack.isVertical = true;
+  castStack.width  = '100px';
   castStack.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
   castStack.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
   castStack.paddingBottom = '20px';

@@ -1,9 +1,9 @@
 // Arcade flight controller — carpet entity with momentum, banking, terrain collision
 import { worldEvents } from './worldEvents.js';
 
-const THRUST    = 20;    // m/s²
-const MAX_HSPEED = 28;   // m/s horizontal cap
-const DRAG      = 0.88;  // per-60Hz-frame velocity multiplier
+const THRUST    = 50;    // m/s²
+const MAX_HSPEED = 40;   // m/s horizontal cap
+const DRAG      = 0.92;  // per-60Hz-frame velocity multiplier
 const GRAVITY   = 2.5;   // m/s² downward pull
 const CLEARANCE = 1.5;   // hard floor above terrain surface (m)
 const MAX_BANK  = 0.42;  // ~24° max visual bank (radians)
@@ -38,12 +38,11 @@ export class FlightController {
   }
 
   _buildCamera(scene) {
-    // yawPivot inherits position + yaw only — camera never rolls with the carpet
     this._yawPivot = new BABYLON.TransformNode('camPivot', scene);
-    this._camera   = new BABYLON.FreeCamera('carpetCam', new BABYLON.Vector3(0, 7, -16), scene);
+    this._camera   = new BABYLON.FreeCamera('carpetCam', new BABYLON.Vector3(0, 1.5, -4), scene);
     this._camera.parent    = this._yawPivot;
-    this._camera.rotation.x = 0.20; // slight downward look
-    // Disable default keyboard/mouse control — InputController owns input
+    this._camera.rotation.x = 0.12; // slight downward look — front edge of carpet visible
+    this._camera.minZ = 0.5;        // tighter near-clip for close camera
     this._camera.inputs.clear();
   }
 
@@ -86,10 +85,15 @@ export class FlightController {
     this.position.y += this.velocity.y * dt;
     this.position.z += this.velocity.z * dt;
 
-    // 8. Soft terrain collision floor
+    // 8. Terrain collision — sample current + one-frame-ahead to prevent embedding
+    //    on fast horizontal movement into slopes.
     const groundY = this._terrain.getHeight(this.position.x, this.position.z);
-    if (this.position.y < groundY + CLEARANCE) {
-      this.position.y = groundY + CLEARANCE;
+    const nx = Math.max(-62, Math.min(62, this.position.x + this.velocity.x * dt));
+    const nz = Math.max(-62, Math.min(62, this.position.z + this.velocity.z * dt));
+    const groundNext = this._terrain.getHeight(nx, nz);
+    const floorY = Math.max(groundY, groundNext) + CLEARANCE;
+    if (this.position.y < floorY) {
+      this.position.y = floorY;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
 
