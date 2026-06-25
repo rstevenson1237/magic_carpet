@@ -9,6 +9,9 @@ const CLEARANCE = 1.5;   // hard floor above terrain surface (m)
 const MAX_BANK  = 0.42;  // ~24° max visual bank (radians)
 const BANK_SPEED = 5;    // rad/s lerp rate
 const ALT_SCALE = 14;    // pitch-to-vertical-velocity multiplier
+const BASE_PITCH = 0.12; // default camera downward tilt (radians)
+const PITCH_MIN  = -0.9; // max look up ~52°
+const PITCH_MAX  =  1.3; // max look down ~74°
 
 export class FlightController {
   constructor(scene, terrain, spawnSlot) {
@@ -19,10 +22,11 @@ export class FlightController {
     const sz = spawnSlot?.z ?? 0;
     const sy = terrain.getHeight(sx, sz) + 8;
 
-    this.position  = new BABYLON.Vector3(sx, sy, sz);
-    this.velocity  = BABYLON.Vector3.Zero();
-    this.yaw       = 0;
-    this.bankAngle = 0;
+    this.position   = new BABYLON.Vector3(sx, sy, sz);
+    this.velocity   = BABYLON.Vector3.Zero();
+    this.yaw        = 0;
+    this.bankAngle  = 0;
+    this._pitchAngle = BASE_PITCH;
 
     this._buildMesh(scene);
     this._buildCamera(scene);
@@ -41,8 +45,8 @@ export class FlightController {
     this._yawPivot = new BABYLON.TransformNode('camPivot', scene);
     this._camera   = new BABYLON.FreeCamera('carpetCam', new BABYLON.Vector3(0, 1.5, -4), scene);
     this._camera.parent    = this._yawPivot;
-    this._camera.rotation.x = 0.12; // slight downward look — front edge of carpet visible
-    this._camera.minZ = 0.5;        // tighter near-clip for close camera
+    this._camera.rotation.x = BASE_PITCH;
+    this._camera.minZ = 0.5;
     this._camera.inputs.clear();
   }
 
@@ -114,9 +118,13 @@ export class FlightController {
     // 12. Smooth camera yaw follow (small lag = cinematic feel)
     this._yawPivot.position.copyFrom(this.position);
     const yawDiff = this.yaw - this._yawPivot.rotation.y;
-    // Normalize yawDiff to [-π, π] to avoid spin-around
     const wrappedDiff = ((yawDiff + Math.PI) % (2 * Math.PI)) - Math.PI;
     this._yawPivot.rotation.y += wrappedDiff * Math.min(1, dt * 8);
+
+    // 12b. Camera pitch — accumulate from input, clamped to avoid flip-over
+    this._pitchAngle = Math.max(PITCH_MIN, Math.min(PITCH_MAX,
+      this._pitchAngle + input.pitchDelta));
+    this._camera.rotation.x = this._pitchAngle;
 
     // 13. §10.6 event
     worldEvents.emit('carpetMove', {
@@ -131,5 +139,6 @@ export class FlightController {
   _teleport(x, y, z) {
     this.position.set(x, y, z);
     this.velocity.setAll(0);
+    this._pitchAngle = BASE_PITCH;
   }
 }
