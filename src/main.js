@@ -486,14 +486,15 @@ function runM3Check() {
   const sx = spawn?.x ?? 0, sz = spawn?.z ?? 0;
   flightController._teleport(sx, terrain.getHeight(sx, sz) + 8, sz);
 
-  // Keyboard forward input moves carpet
-  inputController._simulateKey('KeyW', true);
-  const beforeX = flightController.position.x;
-  const beforeZ = flightController.position.z;
-  const inp = inputController.update(0.016);
-  // just check that forward=1 came through (flight state changes on next frame)
-  chk('keyboard forward input sets forward=1', inp.forward === 1);
-  inputController._simulateKey('KeyW', false);
+  // Keyboard forward input moves carpet (desktop only — touch mode reads the joystick, not keys)
+  if (!inputController.isTouch) {
+    inputController._simulateKey('KeyW', true);
+    const inp = inputController.update(0.016);
+    chk('keyboard forward input sets forward=1', inp.forward === 1);
+    inputController._simulateKey('KeyW', false);
+  } else {
+    chk('keyboard forward input sets forward=1 — SKIP (touch device)', true);
+  }
 
   // Touch / left-stick simulation
   inputController._simulateLeftStick(0, -1); // forward
