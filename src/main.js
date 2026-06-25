@@ -537,7 +537,7 @@ function printCheckGroup(group) {
 
 // ── Render Loop ───────────────────────────────────────────────────────────────
 
-engine.runRenderLoop(() => { scene.render(); });
+engine.runRenderLoop(() => { if (scene.activeCamera) scene.render(); });
 window.addEventListener('resize', () => engine.resize());
 
 // ── Init (deferred until scene is ready) ─────────────────────────────────────
